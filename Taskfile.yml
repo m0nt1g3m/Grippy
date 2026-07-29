@@ -1,0 +1,56 @@
+version: '3'
+
+env:
+  POSTGRES_PORT: '5432'
+
+vars:
+  db_url: 'postgresql://{{.ENV.POSTGRES_USER}}:{{.ENV.POSTGRES_PASSWORD}}@{{.ENV.POSTGRES_HOST}}:{{.ENV.POSTGRES_PORT}}/{{.ENV.POSTGRES_DB}}?sslmode=disable'
+
+tasks:
+  create_migration:
+    desc: Create a new SQL migration file
+    vars:
+      migration_name:
+        ask: Enter migration name
+    cmds:
+      - command: migrate
+        args: ['create', '-ext=sql', '-dir=./migrations', '-seq', '{{.migration_name}}']
+
+  migrate_up:
+    desc: Apply database migrations upward
+    vars:
+      version:
+        ask: Enter migration number
+    cmds:
+      - command: migrate
+        args: ['-path=./migrations', '-database', '{{.db_url}}', '-verbose', 'up', '{{.version}}']
+
+  migrate_down:
+    desc: Roll back database migrations downward
+    vars:
+      version:
+        ask: Enter migration number
+    cmds:
+      - command: migrate
+        args: ['-path=./migrations', '-database', '{{.db_url}}', '-verbose', 'down', '{{.version}}']
+
+  force_migrate_down:
+    desc: Force a specific migration version
+    vars:
+      version:
+        ask: Enter version to force (usually the last successful version)
+    cmds:
+      - command: migrate
+        args: ['-path=./migrations', '-database', '{{.db_url}}', 'force', '{{.version}}']
+
+  run:
+    desc: Run the Grippy backend locally
+    cmds:
+      - command: go
+        args: ['run', './cmd/server']
+
+  build:
+    desc: Build the Grippy binary
+    cmds:
+      - command: go
+        args: ['build', '-o', 'grippy', './cmd/server']
