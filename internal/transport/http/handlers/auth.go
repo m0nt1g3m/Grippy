@@ -1,28 +1,41 @@
 package handlers
 
 import (
-	"Grippy/internal/transport/http/response/errorcode"
-	"Grippy/internal/transport/http/router"
-	auth_usecase "Grippy/internal/usecase/auth"
-	"Grippy/pkg/logger"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
+
+	srv "Grippy/internal/application/auth"
+	domain_auth "Grippy/internal/domain/auth"
+	domain_user "Grippy/internal/domain/user"
+	"Grippy/internal/infrastructure/logging"
+	"Grippy/internal/transport/http/dto"
+	"Grippy/internal/transport/http/router"
 )
 
+type AuthService interface {
+	SignUp(ctx context.Context, input srv.SignUpInput) (*domain_user.User, error)
+	SignIn(ctx context.Context, input srv.SignInInput) (*domain_auth.TokenPair, error)
+	Refresh(ctx context.Context, input srv.RefreshInput) (*domain_auth.TokenPair, error)
+	Logout(ctx context.Context, input srv.LogoutInput) error
+	ValidateRefreshToken(ctx context.Context, tokenStr string) error
+}
+
 type AuthHandler struct {
-	useCase *auth_usecase.AuthUseCase
+	service    AuthService
+	logger     *logging.Logger
+	refreshTTL time.Duration
+	isSecure   bool
 }
 
-type ErrorResponse struct {
-	Code    errorcode.ErrorCode `json:"code"`
-	Message string              `json:"message"`
-}
-
-func NewAuthHandler(uc *auth_usecase.AuthUseCase) *AuthHandler {
+func NewAuthHandler(service AuthService, logger *logging.Logger, refreshTTL time.Duration, isSecure bool) *AuthHandler {
 	return &AuthHandler{
-		useCase: uc,
+		service:    service,
+		logger:     logger,
+		refreshTTL: refreshTTL,
+		isSecure:   isSecure,
 	}
 }
 
@@ -34,211 +47,155 @@ func (h *AuthHandler) RegisterRoutes(r *router.Router) {
 }
 
 func (h *AuthHandler) SignUp(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie("refresh_token")
-	if err == nil && cookie != nil && cookie.Value != "" {
-		err := h.useCase.ValidateRefreshToken(r.Context(), cookie.Value)
-
-		if err == nil {
-			writeJSON(w, http.StatusConflict, ErrorResponse{
-				Code:    errorcode.UserAlreadySignedIn,
-				Message: "Already signed in. Please logout first to create a new account.",
-			})
-			return
-		}
-
-		http.SetCookie(w, &http.Cookie{
-			Name:     "refresh_token",
-			Value:    "",
-			Path:     "/auth",
-			Expires:  time.Unix(0, 0),
-			MaxAge:   -1,
-			HttpOnly: true,
-			Secure:   true,
-			SameSite: http.SameSiteStrictMode,
-		})
+	if h.checkAlreadySignedIn(w, r) {
+		return
 	}
 
-	var req auth_usecase.SignUpRequest
+	var req dto.SignUpRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, ErrorResponse{
-			Code:    errorcode.InvalidRequestBody,
-			Message: "Invalid request body",
-		})
+		respondWithError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.Email == "" || req.Password == "" {
-		writeJSON(w, http.StatusBadRequest, ErrorResponse{
-			Code:    errorcode.InvalidRequestBody,
-			Message: "Email and password are required",
-		})
-		return
+	input := srv.SignUpInput{
+		Email:    req.Email,
+		Username: req.Username,
+		Password: req.Password,
 	}
 
-	user, err := h.useCase.Register(r.Context(), req)
+	u, err := h.service.SignUp(r.Context(), input)
 	if err != nil {
-		logger.Log.Errorf("Registration error: %v", err)
-
-		if errors.Is(err, auth_usecase.ErrUserAlreadyExists) {
-			writeJSON(w, http.StatusConflict, ErrorResponse{
-				Code:    errorcode.UserAlreadyExists,
-				Message: "User with this email already exists",
-			})
-			return
-		}
-
-		if errors.Is(err, auth_usecase.ErrUsernameAlreadyExists) {
-			writeJSON(w, http.StatusConflict, ErrorResponse{
-				Code:    errorcode.UsernameAlreadyExists,
-				Message: "This username is already taken",
-			})
-			return
-		}
-
-		writeJSON(w, http.StatusInternalServerError, ErrorResponse{
-			Code:    errorcode.InternalServerError,
-			Message: "Registration failed",
-		})
+		h.handleDomainError(w, err)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, user)
+	resp := dto.UserResponse{
+		ID:        u.ID(),
+		Email:     u.Email(),
+		Username:  u.Username(),
+		AvatarURL: u.AvatarURL(),
+		CreatedAt: u.CreatedAt(),
+		UpdatedAt: u.UpdatedAt(),
+	}
+
+	respondWithJSON(w, http.StatusCreated, resp)
 }
 
 func (h *AuthHandler) SignIn(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie("refresh_token")
-	if err == nil && cookie != nil && cookie.Value != "" {
-		err := h.useCase.ValidateRefreshToken(r.Context(), cookie.Value)
-
-		if err == nil {
-			writeJSON(w, http.StatusConflict, ErrorResponse{
-				Code:    errorcode.UserAlreadySignedIn,
-				Message: "Already signed in. Please logout first to create a new account.",
-			})
-			return
-		}
-
-		http.SetCookie(w, &http.Cookie{
-			Name:     "refresh_token",
-			Value:    "",
-			Path:     "/auth",
-			Expires:  time.Unix(0, 0),
-			MaxAge:   -1,
-			HttpOnly: true,
-			Secure:   true,
-			SameSite: http.SameSiteStrictMode,
-		})
+	if h.checkAlreadySignedIn(w, r) {
+		return
 	}
 
-	var req auth_usecase.SignInRequest
+	var req dto.SignInRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, ErrorResponse{
-			Code:    errorcode.InvalidRequestBody,
-			Message: "Invalid request body",
-		})
+		respondWithError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	tokenPair, err := h.useCase.Login(r.Context(), req)
+	input := srv.SignInInput{
+		Email:    req.Email,
+		Password: req.Password,
+	}
+
+	tokens, err := h.service.SignIn(r.Context(), input)
 	if err != nil {
-		logger.Log.Errorf("Login error: %v", err)
-
-		if errors.Is(err, auth_usecase.ErrInvalidCredentials) {
-			writeJSON(w, http.StatusUnauthorized, ErrorResponse{
-				Code:    errorcode.InvalidCredentials,
-				Message: "Invalid email or password",
-			})
-			return
-		}
-
-		writeJSON(w, http.StatusInternalServerError, ErrorResponse{
-			Code:    errorcode.InternalServerError,
-			Message: "Authentication failed",
-		})
+		h.handleDomainError(w, err)
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     "refresh_token",
-		Value:    tokenPair.RefreshToken,
-		Expires:  time.Now().Add(30 * 24 * time.Hour),
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
-		Path:     "/auth",
-	})
-
-	writeJSON(w, http.StatusOK, map[string]string{"access_token": tokenPair.AccessToken})
+	h.setRefreshCookie(w, tokens.RefreshToken)
+	respondWithJSON(w, http.StatusOK, map[string]string{"access_token": tokens.AccessToken})
 }
 
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("refresh_token")
 	if err != nil || cookie.Value == "" {
-		writeJSON(w, http.StatusUnauthorized, ErrorResponse{
-			Code:    errorcode.RefreshTokenMissing,
-			Message: "Missing refresh token cookie",
-		})
+		respondWithError(w, http.StatusUnauthorized, "missing refresh token cookie")
 		return
 	}
 
-	tokenPair, err := h.useCase.Refresh(r.Context(), cookie.Value, "user")
-	if err != nil {
-		logger.Log.Errorf("Refresh error: %v", err)
-
-		if errors.Is(err, auth_usecase.ErrSessionNotFound) {
-			writeJSON(w, http.StatusUnauthorized, ErrorResponse{
-				Code:    errorcode.AuthSessionNotFound,
-				Message: "Session expired or not found",
-			})
-			return
-		}
-
-		writeJSON(w, http.StatusUnauthorized, ErrorResponse{
-			Code:    errorcode.RefreshTokenInvalid,
-			Message: "Refresh failed",
-		})
-		return
-	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     "refresh_token",
-		Value:    tokenPair.RefreshToken,
-		Expires:  time.Now().Add(30 * 24 * time.Hour),
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
-		Path:     "/auth",
+	tokens, err := h.service.Refresh(r.Context(), srv.RefreshInput{
+		RefreshToken: cookie.Value,
 	})
+	if err != nil {
+		h.clearRefreshCookie(w)
+		h.handleDomainError(w, err)
+		return
+	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"access_token": tokenPair.AccessToken})
+	h.setRefreshCookie(w, tokens.RefreshToken)
+	respondWithJSON(w, http.StatusOK, map[string]string{"access_token": tokens.AccessToken})
 }
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("refresh_token")
 	if err != nil || cookie.Value == "" {
-		writeJSON(w, http.StatusOK, map[string]string{
-			"message": "Already logged out",
-		})
+		respondWithJSON(w, http.StatusOK, map[string]string{"message": "already logged out"})
 		return
 	}
 
-	err = h.useCase.Logout(r.Context(), cookie.Value)
-	if err != nil {
-		logger.Log.Errorf("Logout use case error: %v", err)
+	if err := h.service.Logout(r.Context(), srv.LogoutInput{RefreshToken: cookie.Value}); err != nil {
+		h.logger.Errorf("logout service error: %v", err)
 	}
 
+	h.clearRefreshCookie(w)
+	respondWithJSON(w, http.StatusOK, map[string]string{"message": "logged out successfully"})
+}
+
+func (h *AuthHandler) checkAlreadySignedIn(w http.ResponseWriter, r *http.Request) bool {
+	cookie, err := r.Cookie("refresh_token")
+	if err == nil && cookie != nil && cookie.Value != "" {
+		if err := h.service.ValidateRefreshToken(r.Context(), cookie.Value); err == nil {
+			respondWithError(w, http.StatusConflict, "already signed in, please logout first")
+			return true
+		}
+		h.clearRefreshCookie(w)
+	}
+	return false
+}
+
+func (h *AuthHandler) setRefreshCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    token,
+		Expires:  time.Now().Add(h.refreshTTL),
+		HttpOnly: true,
+		Secure:   h.isSecure,
+		SameSite: http.SameSiteStrictMode,
+		Path:     "/api/v1/auth",
+	})
+}
+
+func (h *AuthHandler) clearRefreshCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "refresh_token",
 		Value:    "",
-		Path:     "/auth",
+		Path:     "/api/v1/auth",
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   h.isSecure,
 		SameSite: http.SameSiteStrictMode,
 	})
+}
 
-	writeJSON(w, http.StatusOK, map[string]string{
-		"message": "Logged out successfully",
-	})
+func (h *AuthHandler) handleDomainError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, domain_user.ErrInvalidCredentials),
+		errors.Is(err, domain_auth.ErrInvalidToken),
+		errors.Is(err, domain_auth.ErrSessionNotFound):
+		respondWithError(w, http.StatusUnauthorized, err.Error())
+	case errors.Is(err, domain_user.ErrUserAlreadyExists),
+		errors.Is(err, domain_user.ErrUsernameAlreadyExists):
+		respondWithError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, domain_user.ErrEmptyEmail),
+		errors.Is(err, domain_user.ErrInvalidEmail),
+		errors.Is(err, domain_user.ErrEmptyUsername),
+		errors.Is(err, domain_user.ErrUsernameTooLong),
+		errors.Is(err, domain_user.ErrWeakPassword):
+		respondWithError(w, http.StatusBadRequest, err.Error())
+	default:
+		h.logger.Errorf("unexpected error inside auth handler: %v", err)
+		respondWithError(w, http.StatusInternalServerError, "internal server error")
+	}
 }

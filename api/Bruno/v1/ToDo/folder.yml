@@ -1,0 +1,7 @@
+info:
+  name: ToDo
+  type: folder
+  seq: 11
+
+request:
+  auth: inherit

@@ -1,56 +1,59 @@
 version: '3'
 
-env:
-  POSTGRES_PORT: '5432'
+dotenv: ['.env']
 
 vars:
-  db_url: 'postgresql://{{.ENV.POSTGRES_USER}}:{{.ENV.POSTGRES_PASSWORD}}@{{.ENV.POSTGRES_HOST}}:{{.ENV.POSTGRES_PORT}}/{{.ENV.POSTGRES_DB}}?sslmode=disable'
+  MIGRATIONS_PATH: './migrations'
+  DATABASE_URL: 'postgres://{{.POSTGRES_USER}}:{{.POSTGRES_PASSWORD}}@{{.POSTGRES_HOST}}:{{.POSTGRES_PORT}}/{{.POSTGRES_DB}}?sslmode=disable'
 
 tasks:
-  create_migration:
-    desc: Create a new SQL migration file
-    vars:
-      migration_name:
-        ask: Enter migration name
+  update-submodules:
+    desc: Updates all Git submodules recursively to their latest remote commits and merges changes.
     cmds:
-      - command: migrate
-        args: ['create', '-ext=sql', '-dir=./migrations', '-seq', '{{.migration_name}}']
+      - git submodule update --remote --merge --recursive
+
+  create_migration:
+    desc: Create a new migration file
+    cmds:
+      - mkdir -p {{.MIGRATIONS_PATH}}
+      - migrate create -ext=sql -dir={{.MIGRATIONS_PATH}} -seq {{.CLI_ARGS}}
 
   migrate_up:
-    desc: Apply database migrations upward
-    vars:
-      version:
-        ask: Enter migration number
+    desc: Run all pending migrations or N steps
     cmds:
-      - command: migrate
-        args: ['-path=./migrations', '-database', '{{.db_url}}', '-verbose', 'up', '{{.version}}']
+      - mkdir -p {{.MIGRATIONS_PATH}}
+      - migrate -path={{.MIGRATIONS_PATH}} -database "{{.DATABASE_URL}}" -verbose up {{.CLI_ARGS}}
+  
+  dev_migrate_up:
+    desc: Run all pending migrations or N steps for development
+    dotenv: ['.env.dev']
+    cmds:
+      - mkdir -p {{.MIGRATIONS_PATH}}
+      - migrate -path={{.MIGRATIONS_PATH}} -database "postgres://$DEV_POSTGRES_USER:$DEV_POSTGRES_PASSWORD@$DEV_POSTGRES_HOST:$DEV_POSTGRES_PORT/$DEV_POSTGRES_DB?sslmode=disable" -verbose up {{.CLI_ARGS}}
 
   migrate_down:
-    desc: Roll back database migrations downward
-    vars:
-      version:
-        ask: Enter migration number
+    desc: Rollback migrations down N steps
     cmds:
-      - command: migrate
-        args: ['-path=./migrations', '-database', '{{.db_url}}', '-verbose', 'down', '{{.version}}']
+      - migrate -path={{.MIGRATIONS_PATH}} -database "{{.DATABASE_URL}}" -verbose down {{.CLI_ARGS}}
+
+  dev_migrate_down:
+    desc: Rollback migrations down N steps for development
+    dotenv: ['.env.dev']
+    cmds:
+      - migrate -path={{.MIGRATIONS_PATH}} -database "postgres://$DEV_POSTGRES_USER:$DEV_POSTGRES_PASSWORD@$DEV_POSTGRES_HOST:$DEV_POSTGRES_PORT/$DEV_POSTGRES_DB?sslmode=disable" -verbose down {{.CLI_ARGS}}
 
   force_migrate_down:
-    desc: Force a specific migration version
-    vars:
-      version:
-        ask: Enter version to force (usually the last successful version)
+    desc: Force migration version
     cmds:
-      - command: migrate
-        args: ['-path=./migrations', '-database', '{{.db_url}}', 'force', '{{.version}}']
+      - migrate -path={{.MIGRATIONS_PATH}} -database "{{.DATABASE_URL}}" force 1
+  
+  dev_force_migrate_down:
+    desc: Force migration version for development
+    dotenv: ['.env.dev']
+    cmds:
+      - migrate -path={{.MIGRATIONS_PATH}} -database "postgres://$DEV_POSTGRES_USER:$DEV_POSTGRES_PASSWORD@$DEV_POSTGRES_HOST:$DEV_POSTGRES_PORT/$DEV_POSTGRES_DB?sslmode=disable" force 1
 
-  run:
-    desc: Run the Grippy backend locally
+  build_proto:
+    desc: Build proto files for Go.
     cmds:
-      - command: go
-        args: ['run', './cmd/server']
-
-  build:
-    desc: Build the Grippy binary
-    cmds:
-      - command: go
-        args: ['build', '-o', 'grippy', './cmd/server']
+      - cd HailowProto && task build_go

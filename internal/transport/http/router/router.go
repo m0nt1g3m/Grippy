@@ -46,21 +46,44 @@ func (r *Router) wrap(h http.Handler, localMW ...middlewares.Middleware) http.Ha
 }
 
 func (r *Router) Handle(path string, h http.Handler, mw ...middlewares.Middleware) {
-	r.mainRouter.mux.Handle(r.Prefix+path, r.wrap(h, mw...))
+	r.handle("", path, h, mw...)
+}
+
+func (r *Router) handle(method, path string, h http.Handler, mw ...middlewares.Middleware) {
+	pattern := r.Prefix + path
+	if method != "" {
+		pattern = method + " " + pattern
+	}
+	r.mainRouter.mux.Handle(pattern, r.wrap(h, mw...))
 }
 
 func (r *Router) Get(path string, h http.HandlerFunc, mw ...middlewares.Middleware) {
-	r.Handle(path, http.HandlerFunc(h), mw...)
+	r.handle(http.MethodGet, path, http.HandlerFunc(h), mw...)
 }
 
 func (r *Router) Post(path string, h http.HandlerFunc, mw ...middlewares.Middleware) {
-	r.Handle(path, http.HandlerFunc(h), mw...)
+	r.handle(http.MethodPost, path, http.HandlerFunc(h), mw...)
 }
 
 func (r *Router) Put(path string, h http.HandlerFunc, mw ...middlewares.Middleware) {
-	r.Handle(path, http.HandlerFunc(h), mw...)
+	r.handle(http.MethodPut, path, http.HandlerFunc(h), mw...)
 }
 
 func (r *Router) Delete(path string, h http.HandlerFunc, mw ...middlewares.Middleware) {
-	r.Handle(path, http.HandlerFunc(h), mw...)
+	r.handle(http.MethodDelete, path, http.HandlerFunc(h), mw...)
+}
+
+func (r *Router) Group(prefix string) *Router {
+	if !strings.HasPrefix(prefix, "/") {
+		prefix = "/" + prefix
+	}
+
+	inheritedMW := make([]middlewares.Middleware, len(r.middlewares))
+	copy(inheritedMW, r.middlewares)
+
+	return &Router{
+		Prefix:      r.Prefix + prefix,
+		mainRouter:  r.mainRouter,
+		middlewares: inheritedMW,
+	}
 }

@@ -1,0 +1,25 @@
+info:
+  name: AddToDo
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{address}}/api/v1/todo/add"
+  body:
+    type: json
+    data: |-
+      {
+        "title": "First todo",
+        "content": "Content of first todo"
+      }
+  auth:
+    type: bearer
+    token: "{{access_token}}"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

@@ -1,2 +1,2 @@
 ALTER TABLE user_schema.users
-ADD COLUMN avatar TEXT DEFAULT NULL;
+ADD COLUMN avatar_url TEXT DEFAULT NULL;

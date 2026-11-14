@@ -1,0 +1,20 @@
+name: Grippy
+variables:
+  - name: id-todo
+    value: 01a1db33-70b3-78ca-8203-d3d3fbd6f6fa
+    description: ""
+  - name: id-user
+    value: 01a1dad1-dc1c-736b-a5fd-2d172e1101f4
+    description: ""
+  - name: address
+    value: http://0.0.0.0:8080
+    description: "Dev: http://0.0.0.0:8080"
+  - name: email
+    value: developer.m0nt1g3m@gmail.com
+    description: ""
+  - name: password
+    value: "123456789"
+    description: ""
+  - name: access_token
+    value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjAxYTFkYWQxLWRjMWMtNzM2Yi1hNWZkLTJkMTcyZTExMDFmNCIsInVzZXJuYW1lIjoibTBudDFnM20iLCJleHAiOjE3OTQ2ODYwMjQsImlhdCI6MTc5NDY4NTEyNH0.THhiZz9yd52iD-EsdYZbVNFdhZK2RkrD0_XLe5zvmG8
+    description: ""
