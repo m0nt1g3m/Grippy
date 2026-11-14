@@ -1,0 +1,22 @@
+info:
+  name: DeleteToDo
+  type: http
+  seq: 4
+
+http:
+  method: DELETE
+  url: "{{address}}/api/v1/todo/delete?id={{id-todo}}"
+  params:
+    - name: id
+      value: "{{id-todo}}"
+      type: query
+  auth:
+    type: bearer
+    token: "{{access_token}}"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

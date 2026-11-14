@@ -1,0 +1,23 @@
+info:
+  name: SignIn
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: "{{address}}/api/v1/auth/sign_in"
+  body:
+    type: json
+    data: |-
+      {
+        "email":"{{email}}",
+        "password": "{{password}}"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

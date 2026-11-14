@@ -1,0 +1,30 @@
+info:
+  name: UpdateToDo
+  type: http
+  seq: 3
+
+http:
+  method: PUT
+  url: "{{address}}/api/v1/todo/update?id={{id-todo}}"
+  params:
+    - name: id
+      value: "{{id-todo}}"
+      type: query
+  body:
+    type: json
+    data: |-
+      {
+        "title": "First todo",
+        "content": "Content of first todo",
+        "is_completed": true
+      }
+  auth:
+    type: bearer
+    token: "{{access_token}}"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

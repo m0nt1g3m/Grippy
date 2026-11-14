@@ -1,306 +1,198 @@
 package handlers
 
 import (
-	entity "Grippy/internal/domain"
-	"Grippy/internal/repository"
-	"Grippy/internal/transport/http/middlewares"
-	"Grippy/internal/transport/http/response/errorcode"
+	"Grippy/internal/application/todo"
+	domain "Grippy/internal/domain/todo"
+	"Grippy/internal/infrastructure/logging"
+
+	"Grippy/internal/transport/http/dto"
 	"Grippy/internal/transport/http/router"
-	todo_usecase "Grippy/internal/usecase/todo"
-	"Grippy/pkg/logger"
+	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/google/uuid"
 )
 
-type ToDoHandler struct {
-	useCase *todo_usecase.ToDoUseCase
+type Router interface {
+	Get(path string, h http.HandlerFunc, mw ...interface{})
+	Post(path string, h http.HandlerFunc, mw ...interface{})
+	Put(path string, h http.HandlerFunc, mw ...interface{})
 }
 
-func NewToDoHandler(repo *repository.ToDoRepository) *ToDoHandler {
-	useCase := todo_usecase.NewToDoUseCase(repo)
+type ToDoService interface {
+	Save(ctx context.Context, input todo.CreateToDoInput) (*domain.ToDo, error)
+	Get(ctx context.Context, id uuid.UUID, userID uuid.UUID) *domain.ToDo
+	Update(ctx context.Context, input todo.UpdateToDoInput) (*domain.ToDo, error)
+	Delete(ctx context.Context, id uuid.UUID, userID uuid.UUID) error
+}
+
+type ToDoHandler struct {
+	service *todo.Service
+	logger  *logging.Logger
+}
+
+func NewToDoHandler(service *todo.Service, logger *logging.Logger) *ToDoHandler {
 	return &ToDoHandler{
-		useCase: useCase,
+		service: service,
+		logger:  logger,
 	}
 }
 
 func (h *ToDoHandler) RegisterRoutes(r *router.Router) {
-	r.Post("/create", h.CreateTodo)
-	r.Put("/update", h.UpdateTodo)
-	r.Delete("/delete", h.DeleteTodo)
-	r.Get("/get", h.GetToDoByID)
-	r.Get("/get_all", h.GetAllTodos)
+	r.Post("/add", h.Create)
+	r.Get("/get", h.Get)
+	r.Put("/update", h.Update)
+	r.Delete("/delete", h.Delete)
 }
 
-func (h *ToDoHandler) CreateTodo(w http.ResponseWriter, r *http.Request) {
-	claims, ok := r.Context().Value(middlewares.UserKey).(*entity.Claims)
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, ErrorResponse{
-			Code:    errorcode.Unauthorized,
-			Message: "Unauthorized",
-		})
+func (h *ToDoHandler) Create(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
-	var req todo_usecase.CreateToDoRequest
+	var req dto.CreateToDoRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, ErrorResponse{
-			Code:    errorcode.InvalidRequestBody,
-			Message: "Invalid request body",
-		})
+		respondWithError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	responseToDo, err := h.useCase.Create(r.Context(), claims.ID, req)
+	input := todo.CreateToDoInput{
+		UserID:  userID,
+		Title:   req.Title,
+		Content: req.Content,
+	}
+
+	t, err := h.service.Save(r.Context(), input)
 	if err != nil {
-		logger.Log.Errorf("Error creating todo: %v", err)
-
-		switch {
-		case errors.Is(err, todo_usecase.ErrInvalidInput):
-			writeJSON(w, http.StatusBadRequest, ErrorResponse{
-				Code:    errorcode.TodoInvalidInput,
-				Message: err.Error(),
-			})
-		case errors.Is(err, todo_usecase.ErrDuplicateTitle):
-			writeJSON(w, http.StatusConflict, ErrorResponse{
-				Code:    errorcode.TodoDuplicateTitle,
-				Message: err.Error(),
-			})
-		default:
-			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
-				Code:    errorcode.InternalServerError,
-				Message: "Failed to create todo",
-			})
-		}
+		h.handleDomainError(w, err)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, responseToDo)
+	respondWithJSON(w, http.StatusCreated, h.mapToResponse(t))
 }
 
-func (h *ToDoHandler) UpdateTodo(w http.ResponseWriter, r *http.Request) {
-	var req todo_usecase.UpdateToDoRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, ErrorResponse{
-			Code:    errorcode.InvalidRequestBody,
-			Message: "Invalid request body",
-		})
-		return
-	}
-
-	claims, ok := r.Context().Value(middlewares.UserKey).(*entity.Claims)
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, ErrorResponse{
-			Code:    errorcode.Unauthorized,
-			Message: "Unauthorized",
-		})
-		return
-	}
-
-	responseToDo, err := h.useCase.Update(r.Context(), req, claims)
+func (h *ToDoHandler) Get(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
 	if err != nil {
-		logger.Log.Errorf("Error updating todo: %v", err)
-
-		switch {
-		case errors.Is(err, todo_usecase.ErrTodoNotFound):
-			writeJSON(w, http.StatusNotFound, ErrorResponse{
-				Code:    errorcode.TodoNotFound,
-				Message: "Todo not found",
-			})
-		case errors.Is(err, todo_usecase.ErrForbidden):
-			writeJSON(w, http.StatusForbidden, ErrorResponse{
-				Code:    errorcode.TodoForbiddenAction,
-				Message: "You cannot update this todo",
-			})
-		case errors.Is(err, todo_usecase.ErrInvalidInput):
-			writeJSON(w, http.StatusBadRequest, ErrorResponse{
-				Code:    errorcode.TodoInvalidInput,
-				Message: err.Error(),
-			})
-		default:
-			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
-				Code:    errorcode.InternalServerError,
-				Message: "Failed to update todo",
-			})
-		}
+		respondWithError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, responseToDo)
-}
-
-func (h *ToDoHandler) DeleteTodo(w http.ResponseWriter, r *http.Request) {
-	idStr := r.URL.Query().Get("id")
-	var id uuid.UUID
-
-	if idStr != "" {
-		var err error
-		id, err = uuid.Parse(idStr)
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, ErrorResponse{
-				Code:    errorcode.TodoInvalidInput,
-				Message: "Invalid ID format in query parameter",
-			})
-			return
-		}
-	} else {
-		var req todo_usecase.DeleteToDoRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, ErrorResponse{
-				Code:    errorcode.InvalidRequestBody,
-				Message: "ID required in query or body",
-			})
-			return
-		}
-		id = req.ID
-	}
-
-	if id == uuid.Nil {
-		writeJSON(w, http.StatusBadRequest, ErrorResponse{
-			Code:    errorcode.TodoInvalidInput,
-			Message: "ID is required",
-		})
-		return
-	}
-
-	claims, ok := r.Context().Value(middlewares.UserKey).(*entity.Claims)
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, ErrorResponse{
-			Code:    errorcode.Unauthorized,
-			Message: "Unauthorized",
-		})
-		return
-	}
-
-	deletedID, err := h.useCase.Delete(r.Context(), id, claims)
-	if err != nil {
-		logger.Log.Errorf("Error deleting todo: %v", err)
-
-		switch {
-		case errors.Is(err, todo_usecase.ErrTodoNotFound):
-			writeJSON(w, http.StatusNotFound, ErrorResponse{
-				Code:    errorcode.TodoNotFound,
-				Message: "Todo not found",
-			})
-		case errors.Is(err, todo_usecase.ErrForbidden):
-			writeJSON(w, http.StatusForbidden, ErrorResponse{
-				Code:    errorcode.TodoForbiddenAction,
-				Message: "You cannot delete this todo",
-			})
-		default:
-			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
-				Code:    errorcode.InternalServerError,
-				Message: "Failed to delete todo",
-			})
-		}
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]string{
-		"message": fmt.Sprintf("Todo deleted with id: %s", deletedID),
-	})
-}
-
-func (h *ToDoHandler) GetToDoByID(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
 	if idStr == "" {
-		writeJSON(w, http.StatusBadRequest, ErrorResponse{
-			Code:    errorcode.TodoInvalidInput,
-			Message: "ID parameter is required",
-		})
+		respondWithError(w, http.StatusBadRequest, "missing todo id parameter")
 		return
 	}
 
-	id, err := uuid.Parse(idStr)
+	todoID, err := uuid.Parse(idStr)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, ErrorResponse{
-			Code:    errorcode.TodoInvalidInput,
-			Message: "Invalid UUID format",
-		})
+		respondWithError(w, http.StatusBadRequest, "invalid todo id format")
 		return
 	}
 
-	claims, ok := r.Context().Value(middlewares.UserKey).(*entity.Claims)
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, ErrorResponse{
-			Code:    errorcode.Unauthorized,
-			Message: "Unauthorized",
-		})
-		return
-	}
-
-	todo, err := h.useCase.GetToDoByID(r.Context(), id, claims)
+	t, err := h.service.Get(r.Context(), todoID, userID)
 	if err != nil {
-		logger.Log.Errorf("Error getting todo: %v", err)
-
-		if errors.Is(err, todo_usecase.ErrTodoNotFound) {
-			writeJSON(w, http.StatusNotFound, ErrorResponse{
-				Code:    errorcode.TodoNotFound,
-				Message: "Todo not found",
-			})
-			return
-		}
-
-		writeJSON(w, http.StatusInternalServerError, ErrorResponse{
-			Code:    errorcode.InternalServerError,
-			Message: "Failed to get todo",
-		})
+		h.handleDomainError(w, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, todo)
+	respondWithJSON(w, http.StatusOK, h.mapToResponse(t))
 }
 
-func (h *ToDoHandler) GetAllTodos(w http.ResponseWriter, r *http.Request) {
-	limit := 10
-	offset := 0
-
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
-			limit = l
-		} else {
-			writeJSON(w, http.StatusBadRequest, ErrorResponse{
-				Code:    errorcode.TodoInvalidInput,
-				Message: "Invalid limit value",
-			})
-			return
-		}
-	}
-
-	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
-		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
-			offset = o
-		} else {
-			writeJSON(w, http.StatusBadRequest, ErrorResponse{
-				Code:    errorcode.TodoInvalidInput,
-				Message: "Invalid offset value",
-			})
-			return
-		}
-	}
-
-	claims, ok := r.Context().Value(middlewares.UserKey).(*entity.Claims)
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, ErrorResponse{
-			Code:    errorcode.Unauthorized,
-			Message: "Unauthorized",
-		})
-		return
-	}
-
-	todos, err := h.useCase.GetAllToDo(r.Context(), claims, limit, offset)
+func (h *ToDoHandler) Update(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
 	if err != nil {
-		logger.Log.Errorf("Error getting todos: %v", err)
-		writeJSON(w, http.StatusInternalServerError, ErrorResponse{
-			Code:    errorcode.InternalServerError,
-			Message: "Failed to fetch todos",
-		})
+		respondWithError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, todos)
+	idStr := r.URL.Query().Get("id")
+	if idStr == "" {
+		respondWithError(w, http.StatusBadRequest, "missing todo id parameter")
+		return
+	}
+
+	todoID, err := uuid.Parse(idStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "invalid todo id format")
+		return
+	}
+
+	var req dto.UpdateToDoRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	input := todo.UpdateToDoInput{
+		ID:          todoID,
+		UserID:      userID,
+		Title:       req.Title,
+		Content:     req.Content,
+		IsCompleted: req.IsCompleted,
+	}
+
+	t, err := h.service.Update(r.Context(), input)
+	if err != nil {
+		h.handleDomainError(w, err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, h.mapToResponse(t))
+}
+
+func (h *ToDoHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	idStr := r.URL.Query().Get("id")
+	if idStr == "" {
+		respondWithError(w, http.StatusBadRequest, "missing todo id parameter")
+		return
+	}
+
+	todoID, err := uuid.Parse(idStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "invalid todo id format")
+		return
+	}
+
+	err = h.service.Delete(r.Context(), todoID, userID)
+	if err != nil {
+		h.handleDomainError(w, err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"message": "todo deleted successfully"})
+}
+
+func (h *ToDoHandler) mapToResponse(t *domain.ToDo) dto.ToDoResponse {
+	return dto.ToDoResponse{
+		ID:          t.ID(),
+		UserID:      t.UserID(),
+		Title:       t.Title(),
+		Content:     t.Content(),
+		IsCompleted: t.IsCompleted(),
+		CreatedAt:   t.CreatedAt(),
+		UpdatedAt:   t.UpdatedAt(),
+	}
+}
+
+func (h *ToDoHandler) handleDomainError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, domain.ErrToDoNotFound):
+		respondWithError(w, http.StatusNotFound, "todo not found")
+	case errors.Is(err, domain.ErrEmptyTitle), errors.Is(err, domain.ErrEmptyContent):
+		respondWithError(w, http.StatusBadRequest, err.Error())
+	default:
+		h.logger.Errorf("unexpected error inside todo handler: %v", err)
+		respondWithError(w, http.StatusInternalServerError, "internal server error")
+	}
 }

@@ -37,7 +37,7 @@ jobs:
       - name: Build Application
         run: |
           mkdir -p build
-          go build -v -o build/grippy-server ./cmd/server/main.go
+          go build -v -o build/grippy-server ./cmd/app/main.go
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4

@@ -1,0 +1,22 @@
+info:
+  name: GetToDo
+  type: http
+  seq: 2
+
+http:
+  method: GET
+  url: "{{address}}/api/v1/todo/get?id={{id-todo}}"
+  params:
+    - name: id
+      value: "{{id-todo}}"
+      type: query
+  auth:
+    type: bearer
+    token: "{{access_token}}"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
