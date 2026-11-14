@@ -59,13 +59,13 @@ This starts PostgreSQL, Redis, and the Grippy backend.
 ### Running with Go
 
 ```bash
-go run ./cmd/server
+go run ./cmd/app
 ```
 
 Or build and run the binary:
 
 ```bash
-go build -o grippy ./cmd/server
+go build -o grippy ./cmd/app
 ./grippy
 ```
 
@@ -83,58 +83,6 @@ To create a new migration:
 ```bash
 task create_migration
 ```
-
-## API Overview
-
-### Authentication
-
-- `POST /auth/sign_up`
-  - Body: `{ "email": "...", "username": "...", "password": "..." }`
-  - Registers a new user.
-
-- `POST /auth/sign_in`
-  - Body: `{ "email": "...", "password": "..." }`
-  - Returns `access_token` and sets `refresh_token` cookie.
-
-- `POST /auth/refresh_token`
-  - Uses `refresh_token` cookie.
-  - Returns a new `access_token` and refreshes the cookie.
-
-- `POST /auth/logout`
-  - Clears the refresh token cookie.
-
-### To-Do Management
-
-Authentication is required for all `/todos` routes.
-Include the access token in the `Authorization` header:
-
-```http
-Authorization: Bearer <access_token>
-```
-
-- `POST /todos/create`
-  - Body: `{ "title": "...", "description": "..." }`
-
-- `PUT /todos/update`
-  - Body: `{ "id": "uuid", "user_id": "uuid", "title": "...", "description": "...", "is_completed": true }`
-
-- `DELETE /todos/delete`
-  - Query: `?id=<uuid>` or JSON body: `{ "id": "uuid" }`
-
-- `GET /todos/get`
-  - Query: `?id=<uuid>`
-
-- `GET /todos/get_all`
-  - Returns all todos for the authenticated user.
-
-### User Profile
-
-- `PUT /user/update_info`
-  - Body: `{ "email": "...", "username": "..." }`
-
-- `PUT /user/upload-avatar`
-  - Multipart form upload with key `avatar`
-  - Accepts JPEG or PNG files, up to 10 MB.
 
 ## Notes
 
