@@ -1,0 +1,318 @@
+openapi: 3.0.0
+info:
+  title: Grippy_v1
+  version: 1.0.0
+paths:
+  /api/v1/todo/delete:
+    delete:
+      summary: DeleteToDo
+      operationId: volumes_development_projects_grippy_api_bruno_v1_todo_deletetodo_yml
+      description: ''
+      tags:
+        - v1
+      responses:
+        '200':
+          description: ''
+      parameters:
+        - name: id
+          in: query
+          description: ''
+          required: true
+          schema:
+            type: string
+          example: '{{id-todo}}'
+      security:
+        - deletetodo: []
+      servers:
+        - url: http://0.0.0.0:8080
+  /api/v1/todo/add:
+    post:
+      summary: AddToDo
+      operationId: volumes_development_projects_grippy_api_bruno_v1_todo_addtodo_yml
+      description: ''
+      tags:
+        - v1
+      responses:
+        '200':
+          description: ''
+      requestBody:
+        $ref: '#/components/requestBodies/addtodo'
+      security:
+        - addtodo: []
+      servers:
+        - url: http://0.0.0.0:8080
+  /api/v1/todo/update:
+    put:
+      summary: UpdateToDo
+      operationId: volumes_development_projects_grippy_api_bruno_v1_todo_updatetodo_yml
+      description: ''
+      tags:
+        - v1
+      responses:
+        '200':
+          description: ''
+      parameters:
+        - name: id
+          in: query
+          description: ''
+          required: true
+          schema:
+            type: string
+          example: '{{id-todo}}'
+      requestBody:
+        $ref: '#/components/requestBodies/updatetodo'
+      security:
+        - updatetodo: []
+      servers:
+        - url: http://0.0.0.0:8080
+  /api/v1/todo/get:
+    get:
+      summary: GetToDo
+      operationId: volumes_development_projects_grippy_api_bruno_v1_todo_gettodo_yml
+      description: ''
+      tags:
+        - v1
+      responses:
+        '200':
+          description: ''
+      parameters:
+        - name: id
+          in: query
+          description: ''
+          required: true
+          schema:
+            type: string
+          example: '{{id-todo}}'
+      security:
+        - gettodo: []
+      servers:
+        - url: http://0.0.0.0:8080
+  /api/v1/user/profile:
+    get:
+      summary: GetProfile
+      operationId: volumes_development_projects_grippy_api_bruno_v1_user_getprofile_yml
+      description: ''
+      tags:
+        - v1
+      responses:
+        '200':
+          description: ''
+      security:
+        - getprofile: []
+      servers:
+        - url: http://0.0.0.0:8080
+    put:
+      summary: UpdateProfile
+      operationId: volumes_development_projects_grippy_api_bruno_v1_user_updateprofile_yml
+      description: ''
+      tags:
+        - v1
+      responses:
+        '200':
+          description: ''
+      requestBody:
+        $ref: '#/components/requestBodies/updateprofile'
+      security:
+        - updateprofile: []
+      servers:
+        - url: http://0.0.0.0:8080
+  /api/v1/user/avatar:
+    post:
+      summary: UploadAvatar
+      operationId: volumes_development_projects_grippy_api_bruno_v1_user_uploadavatar_yml
+      description: ''
+      tags:
+        - v1
+      responses:
+        '200':
+          description: ''
+      requestBody:
+        $ref: '#/components/requestBodies/uploadavatar'
+      security:
+        - uploadavatar: []
+      servers:
+        - url: http://0.0.0.0:8080
+  /api/v1/auth/sign_in:
+    post:
+      summary: SignIn
+      operationId: volumes_development_projects_grippy_api_bruno_v1_auth_signin_yml
+      description: ''
+      tags:
+        - v1
+      responses:
+        '200':
+          description: ''
+      requestBody:
+        $ref: '#/components/requestBodies/signin'
+      servers:
+        - url: http://0.0.0.0:8080
+  /api/v1/auth/sign_up:
+    post:
+      summary: SignUp
+      operationId: volumes_development_projects_grippy_api_bruno_v1_auth_signup_yml
+      description: ''
+      tags:
+        - v1
+      responses:
+        '200':
+          description: ''
+      requestBody:
+        $ref: '#/components/requestBodies/signup'
+      servers:
+        - url: http://0.0.0.0:8080
+  /api/v1/auth/refresh_token:
+    post:
+      summary: RefreshToken
+      operationId: volumes_development_projects_grippy_api_bruno_v1_auth_refreshtoken_yml
+      description: ''
+      tags:
+        - v1
+      responses:
+        '200':
+          description: ''
+      servers:
+        - url: http://0.0.0.0:8080
+  /api/v1/auth/logout:
+    post:
+      summary: Logout
+      operationId: volumes_development_projects_grippy_api_bruno_v1_auth_logout_yml
+      description: ''
+      tags:
+        - v1
+      responses:
+        '200':
+          description: ''
+      servers:
+        - url: http://0.0.0.0:8080
+servers: []
+components:
+  schemas:
+    addtodo:
+      type: object
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+      example:
+        title: First todo
+        content: Content of first todo
+    updatetodo:
+      type: object
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+        is_completed:
+          type: boolean
+      example:
+        title: First todo
+        content: Content of first todo
+        is_completed: true
+    updateprofile:
+      type: object
+      properties:
+        email:
+          type: string
+        username:
+          type: string
+      example:
+        email: '{{email}}'
+        username: m0nt1g3m_2
+    uploadavatar:
+      type: object
+      properties:
+        avatar:
+          type: object
+          properties:
+            type:
+              type: string
+    signin:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+      example:
+        email: '{{email}}'
+        password: '{{password}}'
+    signup:
+      type: object
+      properties:
+        email:
+          type: string
+        username:
+          type: string
+        password:
+          type: string
+      example:
+        email: developer.m0nt1g3m@gmail.com
+        username: m0nt1g3m
+        password: '123456789'
+  requestBodies:
+    addtodo:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/addtodo'
+      description: ''
+      required: true
+    updatetodo:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/updatetodo'
+      description: ''
+      required: true
+    updateprofile:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/updateprofile'
+      description: ''
+      required: true
+    uploadavatar:
+      content:
+        multipart/form-data:
+          schema:
+            $ref: '#/components/schemas/uploadavatar'
+      description: ''
+      required: true
+    signin:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/signin'
+      description: ''
+      required: true
+    signup:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/signup'
+      description: ''
+      required: true
+  securitySchemes:
+    deletetodo:
+      type: http
+      scheme: bearer
+    addtodo:
+      type: http
+      scheme: bearer
+    updatetodo:
+      type: http
+      scheme: bearer
+    gettodo:
+      type: http
+      scheme: bearer
+    getprofile:
+      type: http
+      scheme: bearer
+    updateprofile:
+      type: http
+      scheme: bearer
+    uploadavatar:
+      type: http
+      scheme: bearer
