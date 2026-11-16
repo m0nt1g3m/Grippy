@@ -10,42 +10,42 @@ vars:
 
 tasks:
   create_migration:
-    desc: Create a new migration file (Usage: task create_migration -- name)
+    desc: "Create a new migration file (Usage: task create_migration -- name)"
     cmds:
       - mkdir -p {{.MIGRATIONS_PATH}}
       - migrate create -ext=sql -dir={{.MIGRATIONS_PATH}} -seq {{.CLI_ARGS}}
 
   dev_migrate_up:
-    desc: Run all pending migrations or N steps for development
+    desc: "Run all pending migrations or N steps for development"
     dotenv: ['.env.dev']
     cmds:
       - mkdir -p {{.MIGRATIONS_PATH}}
       - migrate -path={{.MIGRATIONS_PATH}} -database "postgres://$DEV_POSTGRES_USER:$DEV_POSTGRES_PASSWORD@$DEV_POSTGRES_HOST:$DEV_POSTGRES_PORT/$DEV_POSTGRES_DB?sslmode=disable" -verbose up {{.CLI_ARGS}}
 
   dev_migrate_down:
-    desc: Rollback migrations down N steps for development
+    desc: "Rollback migrations down N steps for development"
     dotenv: ['.env.dev']
     cmds:
       - migrate -path={{.MIGRATIONS_PATH}} -database "postgres://$DEV_POSTGRES_USER:$DEV_POSTGRES_PASSWORD@$DEV_POSTGRES_HOST:$DEV_POSTGRES_PORT/$DEV_POSTGRES_DB?sslmode=disable" -verbose down {{.CLI_ARGS}}
 
   dev_force_migrate_down:
-    desc: Force migration version for development
+    desc: "Force migration version for development"
     dotenv: ['.env.dev']
     cmds:
       - migrate -path={{.MIGRATIONS_PATH}} -database "postgres://$DEV_POSTGRES_USER:$DEV_POSTGRES_PASSWORD@$DEV_POSTGRES_HOST:$DEV_POSTGRES_PORT/$DEV_POSTGRES_DB?sslmode=disable" force 1
 
   prod_migrate_up:
-    desc: Apply pending migrations to the prod database
+    desc: "Apply pending migrations to the prod database"
     cmds:
       - '{{.COMPOSE}} run --rm migrate -path=/migrations -database "postgres://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB?sslmode=disable" up {{.CLI_ARGS}}'
 
   prod_migrate_down:
-    desc: Rollback prod migrations down N steps
+    desc: "Rollback prod migrations down N steps"
     cmds:
       - '{{.COMPOSE}} run --rm migrate -path=/migrations -database "postgres://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB?sslmode=disable" down {{.CLI_ARGS}}'
 
   prod_init_ssl:
-    desc: Obtain initial Let's Encrypt SSL certificates for grippy.work.gd
+    desc: "Obtain initial Let's Encrypt SSL certificates for grippy.work.gd"
     status:
       - test -d {{.CERTBOT_DIR}}/conf/live/{{.DOMAIN}}
     cmds:
@@ -84,23 +84,23 @@ tasks:
       - '{{.COMPOSE}} exec nginx nginx -s reload'
 
   prod_deploy:
-    desc: Full deployment
+    desc: "Full deployment"
     cmds:
       - task: prod_init_ssl
       - '{{.COMPOSE}} up -d --build'
 
   prod_up:
-    desc: Build and start the prod stack
+    desc: "Build and start the prod stack"
     cmds:
       - '{{.COMPOSE}} up -d --build'
 
   prod_down:
-    desc: Stop the prod stack
+    desc: "Stop the prod stack"
     cmds:
       - '{{.COMPOSE}} down'
 
   prod_ps:
-    desc: Show prod containers
+    desc: "Show prod containers"
     cmds:
       - '{{.COMPOSE}} ps'
 
