@@ -16,7 +16,7 @@ type Logger struct {
 	file *lumberjack.Logger
 }
 
-func New(env string) (*Logger, error) {
+func New(debug bool) (*Logger, error) {
 
 	logDir := "logs"
 	logFile := filepath.Join(logDir, "app.log")
@@ -28,7 +28,7 @@ func New(env string) (*Logger, error) {
 
 	encoderConfig := zap.NewDevelopmentEncoderConfig()
 
-	if env == "production" {
+	if !debug {
 		encoderConfig = zap.NewProductionEncoderConfig()
 	}
 	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
@@ -40,7 +40,7 @@ func New(env string) (*Logger, error) {
 	fileConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
 
 	var consoleEncoder, fileEncoder zapcore.Encoder
-	if env == "production" {
+	if !debug {
 		consoleEncoder = zapcore.NewJSONEncoder(consoleConfig)
 		fileEncoder = zapcore.NewJSONEncoder(fileConfig)
 	} else {
@@ -52,7 +52,7 @@ func New(env string) (*Logger, error) {
 	logFileWriter := &lumberjack.Logger{Filename: logFile, MaxSize: 10, MaxBackups: 5, MaxAge: 30, Compress: true}
 
 	level := zap.NewAtomicLevelAt(zapcore.DebugLevel)
-	if env == "production" {
+	if !debug {
 		level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
 	}
 

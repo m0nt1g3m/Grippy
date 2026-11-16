@@ -1,69 +1,96 @@
-version: "3.8"
+name: Grippy
 
 services:
-  postgres-db:
+  postgres:
     image: postgres:15-alpine
-    container_name: grippy-postgres
+    container_name: grippy_postgres
     restart: always
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     env_file:
-      - .env
+      - .env.prod
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d Grippy"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
-      timeout: 5s
-      retries: 5
+      timeout: 3s
+      retries: 10
+    networks: [app]
 
-  redis-cache:
+  redis:
     image: redis:7-alpine
-    container_name: grippy-redis
+    container_name: grippy_redis
     restart: always
-    ports:
-      - "6379:6379"
     env_file:
-      - .env
-    environment:
-      - REDIS_HOST=redis-cache
+      - .env.prod
     volumes:
       - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
-      retries: 5
+      retries: 10
+    networks: [app]
 
-  migration-runner:
-    image: migrate/migrate:v4.15.2
-    container_name: grippy-migrator
+  migrate:
+    image: migrate/migrate:v4.8.3
     volumes:
       - ./migrations:/migrations
-    command: -path=/migrations
-      -database "postgres://postgres:postgres@postgres-db:5432/Grippy?sslmode=disable"
-      up
+    command:
+      - -path=/migrations
+      - -database=postgres://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:?}?sslmode=disable
+      - up
     depends_on:
-      postgres-db:
+      postgres:
         condition: service_healthy
+    networks: [app]
 
-  grippy-app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: grippy-backend
-    ports:
-      - "8080:8080"
+  backend:
+    build: .
+    container_name: grippy_backend
+    restart: always
     env_file:
-      - .env
-    environment:
-      - POSTGRES_HOST=postgres-db
-      - REDIS_HOST=redis-cache
+      - .env.prod
     depends_on:
-      postgres-db:
+      postgres:
         condition: service_healthy
-      redis-cache:
+      redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./logs:/app/logs
+    networks: [app]
+  
+  nginx:
+    image: nginx:alpine
+    container_name: grippy_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
+    depends_on:
+      - backend
+    networks: [app]
+  
+  certbot:
+    image: certbot/certbot
+    container_name: grippy_certbot
+    restart: always
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    networks: [app]
+
+networks:
+  app:
 
 volumes:
   pgdata:

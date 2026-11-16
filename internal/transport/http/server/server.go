@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -41,12 +42,16 @@ type Server struct {
 func Init(address string, port int) (*Server, error) {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	env := os.Getenv("APP_ENV")
-	if env == "" {
-		env = "development"
+	debug := false
+	if rawDebug := os.Getenv("DEBUG"); rawDebug != "" {
+		parsedDebug, err := strconv.ParseBool(rawDebug)
+		if err != nil {
+			return nil, fmt.Errorf("invalid DEBUG value %q: %w", rawDebug, err)
+		}
+		debug = parsedDebug
 	}
 
-	logger, err := logging.New(env)
+	logger, err := logging.New(debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize logger: %w", err)
 	}
@@ -106,7 +111,7 @@ func Init(address string, port int) (*Server, error) {
 
 	accessTTL := 15 * time.Minute
 	refreshTTL := 30 * 24 * time.Hour
-	isSecure := env == "production"
+	isSecure := !debug
 
 	accessSecret := os.Getenv("JWT_ACCESS_SECRET")
 	refreshSecret := os.Getenv("JWT_REFRESH_SECRET")
