@@ -2,7 +2,7 @@ name: Grippy
 
 services:
   postgres:
-    image: postgres:15-alpine
+    image: postgres:17-alpine
     container_name: grippy_postgres
     restart: always
     ports:
@@ -34,7 +34,8 @@ services:
     networks: [app]
 
   migrate:
-    image: migrate/migrate:v4.8.3
+    image: migrate/migrate:v4.18.1
+    container_name: grippy_migrate
     volumes:
       - ./migrations:/migrations
     command:
