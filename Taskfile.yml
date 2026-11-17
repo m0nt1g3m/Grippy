@@ -44,44 +44,72 @@ tasks:
     cmds:
       - '{{.COMPOSE}} run --rm migrate -path=/migrations -database "postgres://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB?sslmode=disable" down {{.CLI_ARGS}}'
 
-  prod_init_ssl:
-    desc: "Obtain initial Let's Encrypt SSL certificates for grippy.work.gd"
+    prod_init_ssl:
+    desc: "Obtain Let's Encrypt certificate automatically (idempotent, no manual nginx swaps)"
     status:
-      - test -d {{.CERTBOT_DIR}}/conf/live/{{.DOMAIN}}
+      - test -f {{.CERTBOT_DIR}}/conf/renewal/{{.DOMAIN}}.conf
     cmds:
-      - echo "### Creating directories and dummy certificate for {{.DOMAIN}}..."
-      - mkdir -p {{.CERTBOT_DIR}}/conf/live/{{.DOMAIN}} {{.CERTBOT_DIR}}/www
-      - >
-        {{.COMPOSE}} run --rm --entrypoint "
-        openssl req -x509 -nodes -newkey rsa:2048 -days 1
-        -keyout '/etc/letsencrypt/live/{{.DOMAIN}}/privkey.pem'
-        -out '/etc/letsencrypt/live/{{.DOMAIN}}/fullchain.pem'
-        -subj '/CN=localhost'" certbot
+      - mkdir -p {{.CERTBOT_DIR}}/conf {{.CERTBOT_DIR}}/www
 
-      - echo "### Starting Nginx with dummy certificate..."
-      - '{{.COMPOSE}} up --force-recreate --no-deps -d nginx'
+      - echo "### [1/6] Creating dummy self-signed cert so nginx can start..."
+      - |
+        {{.COMPOSE}} run --rm --entrypoint sh certbot -c "
+          mkdir -p /etc/letsencrypt/live/{{.DOMAIN}} && \
+          openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+            -keyout /etc/letsencrypt/live/{{.DOMAIN}}/privkey.pem \
+            -out    /etc/letsencrypt/live/{{.DOMAIN}}/fullchain.pem \
+            -subj '/CN={{.DOMAIN}}'"
 
-      - echo "### Removing dummy certificate..."
-      - >
-        {{.COMPOSE}} run --rm --entrypoint "
-        rm -Rf /etc/letsencrypt/live/{{.DOMAIN}} &&
-        rm -Rf /etc/letsencrypt/archive/{{.DOMAIN}} &&
-        rm -Rf /etc/letsencrypt/renewal/{{.DOMAIN}}.conf" certbot
+      - echo "### [2/6] Starting nginx with dummy cert..."
+      - '{{.COMPOSE}} up -d --force-recreate --no-deps nginx'
 
-      - echo "### Requesting Let's Encrypt certificate..."
-      - >
-        {{.COMPOSE}} run --rm --entrypoint "
-        certbot certonly --webroot -w /var/www/certbot
-        {{.STAGING_FLAG}}
-        --email {{.EMAIL}}
-        -d {{.DOMAIN}}
-        --rsa-key-size 4096
-        --agree-tos
-        --no-eff-email
-        --force-renewal" certbot
+      - echo "### [3/6] Waiting for nginx to listen on :80..."
+      - |
+        for i in $(seq 1 30); do
+          if curl -sf -o /dev/null http://127.0.0.1/ 2>/dev/null; then
+            echo "nginx is up after ${i}s"
+            break
+          fi
+          sleep 1
+        done
+        curl -sf -o /dev/null http://127.0.0.1/ || {
+          echo "!!! nginx did not become reachable on :80"
+          {{.COMPOSE}} logs --tail=50 nginx
+          exit 1
+        }
 
-      - echo "### Reloading Nginx with production certificate..."
+      - echo "### [4/6] Removing dummy cert files (nginx keeps cert in memory)..."
+      - |
+        {{.COMPOSE}} run --rm --entrypoint sh certbot -c "
+          rm -rf /etc/letsencrypt/live/{{.DOMAIN}} \
+                 /etc/letsencrypt/archive/{{.DOMAIN}} \
+                 /etc/letsencrypt/renewal/{{.DOMAIN}}.conf"
+
+      - echo "### [5/6] Requesting Let's Encrypt certificate..."
+      - |
+        if ! {{.COMPOSE}} run --rm --entrypoint certbot certbot certonly \
+              --webroot -w /var/www/certbot \
+              {{.STAGING_FLAG}} \
+              --email {{.EMAIL}} \
+              -d {{.DOMAIN}} \
+              --rsa-key-size 4096 \
+              --agree-tos \
+              --no-eff-email \
+              --non-interactive; then
+          echo "!!! Certbot failed — restoring dummy cert so nginx stays startable"
+          {{.COMPOSE}} run --rm --entrypoint sh certbot -c "
+            mkdir -p /etc/letsencrypt/live/{{.DOMAIN}} && \
+            openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+              -keyout /etc/letsencrypt/live/{{.DOMAIN}}/privkey.pem \
+              -out    /etc/letsencrypt/live/{{.DOMAIN}}/fullchain.pem \
+              -subj '/CN={{.DOMAIN}}'"
+          exit 1
+        fi
+
+      - echo "### [6/6] Reloading nginx with the real certificate..."
       - '{{.COMPOSE}} exec nginx nginx -s reload'
+
+      - echo "### Done. Certificate issued for {{.DOMAIN}}."
 
   prod_deploy:
     desc: "Full deployment"
