@@ -1,5 +1,6 @@
 .git
 .gitignore
+.gitmodules
 .github
 .idea
 .vscode
@@ -27,6 +28,14 @@ tmp/
 
 bruno/
 docs/
+
+certbot/
+migrations/
+nginx/
+Taskfile.yml
+
+grippy-server
+grippy
 
 Dockerfile
 docker-compose.yml
