@@ -1,103 +1,105 @@
 version: '3'
 
 vars:
-  MIGRATIONS_PATH: './migrations'
-  COMPOSE: docker compose --env-file .env.prod
+  COMPOSE_EDGE: >-
+    docker compose
+    -f docker-compose.yml
+    -f docker-compose.edge.yml
+    --env-file .env.prod
+  COMPOSE_STANDALONE: >-
+    docker compose
+    -f docker-compose.yml
+    -f docker-compose.standalone.yml
+    --env-file .env.prod
+  MIGRATIONS_PATH: ./migrations
   DOMAIN: grippy.work.gd
   EMAIL: developer.m0nt1g3m@gmail.com
-  CERTBOT_DIR: ./certbot
   STAGING_FLAG: ""
 
 tasks:
-  create_migration:
-    desc: "Create a new migration file (Usage: task create_migration -- name)"
+  edge_deploy:
+    desc: Deploy behind EdgeProxy (nginx+certbot live in /opt/EdgeProxy)
     cmds:
-      - mkdir -p {{.MIGRATIONS_PATH}}
-      - migrate create -ext=sql -dir={{.MIGRATIONS_PATH}} -seq {{.CLI_ARGS}}
+      - '{{.COMPOSE_EDGE}} up -d --build --remove-orphans'
+      - echo "Now add grippy.work.gd in /opt/EdgeProxy: task add-domain"
 
-  dev_migrate_up:
-    desc: "Run all pending migrations or N steps for development"
-    dotenv: ['.env.dev']
+  edge_down:
+    desc: Stop Grippy (edge mode)
     cmds:
-      - mkdir -p {{.MIGRATIONS_PATH}}
-      - migrate -path={{.MIGRATIONS_PATH}} -database "postgres://$DEV_POSTGRES_USER:$DEV_POSTGRES_PASSWORD@$DEV_POSTGRES_HOST:$DEV_POSTGRES_PORT/$DEV_POSTGRES_DB?sslmode=disable" -verbose up {{.CLI_ARGS}}
+      - '{{.COMPOSE_EDGE}} down'
 
-  dev_migrate_down:
-    desc: "Rollback migrations down N steps for development"
-    dotenv: ['.env.dev']
+  edge_ps:
     cmds:
-      - migrate -path={{.MIGRATIONS_PATH}} -database "postgres://$DEV_POSTGRES_USER:$DEV_POSTGRES_PASSWORD@$DEV_POSTGRES_HOST:$DEV_POSTGRES_PORT/$DEV_POSTGRES_DB?sslmode=disable" -verbose down {{.CLI_ARGS}}
+      - '{{.COMPOSE_EDGE}} ps'
 
-  dev_force_migrate_down:
-    desc: "Force migration version for development"
-    dotenv: ['.env.dev']
+  edge_logs:
+    desc: "Follow logs: task edge_logs -- backend"
     cmds:
-      - migrate -path={{.MIGRATIONS_PATH}} -database "postgres://$DEV_POSTGRES_USER:$DEV_POSTGRES_PASSWORD@$DEV_POSTGRES_HOST:$DEV_POSTGRES_PORT/$DEV_POSTGRES_DB?sslmode=disable" force 1
+      - '{{.COMPOSE_EDGE}} logs -f {{.CLI_ARGS}}'
 
-  prod_migrate_up:
-    desc: "Apply pending migrations to the prod database"
+  edge_exec:
+    desc: "Exec in a service: task edge_exec -- backend sh"
     cmds:
-      - '{{.COMPOSE}} run --rm migrate -path=/migrations -database "postgres://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB?sslmode=disable" up {{.CLI_ARGS}}'
+      - '{{.COMPOSE_EDGE}} exec {{.CLI_ARGS}}'
 
-  prod_migrate_down:
-    desc: "Rollback prod migrations down N steps"
+  standalone_deploy:
+    desc: Deploy standalone (own nginx + certbot)
     cmds:
-      - '{{.COMPOSE}} run --rm migrate -path=/migrations -database "postgres://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB?sslmode=disable" down {{.CLI_ARGS}}'
+      - task: standalone_init_ssl
+      - '{{.COMPOSE_STANDALONE}} up -d --build --remove-orphans'
 
-  prod_init_ssl:
-    desc: "Obtain Let's Encrypt certificate automatically (idempotent, no manual nginx swaps)"
+  standalone_down:
+    cmds:
+      - '{{.COMPOSE_STANDALONE}} down'
+
+  standalone_ps:
+    cmds:
+      - '{{.COMPOSE_STANDALONE}} ps'
+
+  standalone_logs:
+    desc: "Follow logs: task standalone_logs -- nginx"
+    cmds:
+      - '{{.COMPOSE_STANDALONE}} logs -f {{.CLI_ARGS}}'
+
+  standalone_init_ssl:
+    desc: Bootstrap SSL for standalone mode (dummy cert -> issue -> reload)
     status:
-      - test -f {{.CERTBOT_DIR}}/conf/renewal/{{.DOMAIN}}.conf
+      - test -f certbot/conf/renewal/{{.DOMAIN}}.conf
     cmds:
-      - mkdir -p {{.CERTBOT_DIR}}/conf {{.CERTBOT_DIR}}/www
-
-      - echo "### [1/6] Creating dummy self-signed cert so nginx can start..."
+      - mkdir -p certbot/conf certbot/www
+      - echo "### [1/5] Dummy cert..."
       - |
-        {{.COMPOSE}} run --rm --entrypoint sh certbot -c "
+        {{.COMPOSE_STANDALONE}} run --rm --entrypoint sh certbot -c "
           mkdir -p /etc/letsencrypt/live/{{.DOMAIN}} && \
           openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
             -keyout /etc/letsencrypt/live/{{.DOMAIN}}/privkey.pem \
             -out    /etc/letsencrypt/live/{{.DOMAIN}}/fullchain.pem \
-            -subj '/CN={{.DOMAIN}}'"
-
-      - echo "### [2/6] Starting nginx with dummy cert..."
-      - '{{.COMPOSE}} up -d --force-recreate --no-deps nginx'
-
-      - echo "### [3/6] Waiting for nginx to listen on :80..."
+            -subj '/CN={{.DOMAIN}}' 2>/dev/null"
+      - echo "### [2/5] Starting nginx with dummy..."
+      - '{{.COMPOSE_STANDALONE}} up -d --force-recreate nginx'
+      - echo "### [3/5] Waiting for :80..."
       - |
         for i in $(seq 1 30); do
-          if curl -sf -o /dev/null http://127.0.0.1/ 2>/dev/null; then
-            echo "nginx is up after ${i}s"
-            break
-          fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1/ || echo 000)
+          [ "$code" != "000" ] && { echo "nginx up (HTTP $code)"; break; }
           sleep 1
         done
-        curl -sf -o /dev/null http://127.0.0.1/ || {
-          echo "!!! nginx did not become reachable on :80"
-          {{.COMPOSE}} logs --tail=50 nginx
-          exit 1
-        }
-
-      - echo "### [4/6] Removing dummy cert files (nginx keeps cert in memory)..."
+        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1/ || echo 000)
+        [ "$code" != "000" ] || { echo "!!! nginx not on :80"; {{.COMPOSE_STANDALONE}} logs --tail=50 nginx; exit 1; }
+      - echo "### [4/5] Issuing real certificate..."
       - |
-        {{.COMPOSE}} run --rm --entrypoint sh certbot -c "
+        {{.COMPOSE_STANDALONE}} run --rm --entrypoint sh certbot -c "
           rm -rf /etc/letsencrypt/live/{{.DOMAIN}} \
                  /etc/letsencrypt/archive/{{.DOMAIN}} \
                  /etc/letsencrypt/renewal/{{.DOMAIN}}.conf"
-
-      - echo "### [5/6] Requesting Let's Encrypt certificate..."
       - |
-        if ! {{.COMPOSE}} run --rm --entrypoint certbot certbot certonly \
+        if ! {{.COMPOSE_STANDALONE}} run --rm --entrypoint certbot certbot certonly \
               --webroot -w /var/www/certbot \
               {{.STAGING_FLAG}} \
-              --email {{.EMAIL}} \
-              -d {{.DOMAIN}} \
-              --rsa-key-size 4096 \
-              --agree-tos \
-              --no-eff-email \
-              --non-interactive; then
-          echo "!!! Certbot failed — restoring dummy cert so nginx stays startable"
-          {{.COMPOSE}} run --rm --entrypoint sh certbot -c "
+              --email {{.EMAIL}} -d {{.DOMAIN}} \
+              --rsa-key-size 4096 --agree-tos --no-eff-email --non-interactive; then
+          echo "!!! certbot failed — restoring dummy so nginx stays startable"
+          {{.COMPOSE_STANDALONE}} run --rm --entrypoint sh certbot -c "
             mkdir -p /etc/letsencrypt/live/{{.DOMAIN}} && \
             openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
               -keyout /etc/letsencrypt/live/{{.DOMAIN}}/privkey.pem \
@@ -105,34 +107,23 @@ tasks:
               -subj '/CN={{.DOMAIN}}'"
           exit 1
         fi
+      - echo "### [5/5] Reloading nginx..."
+      - '{{.COMPOSE_STANDALONE}} exec nginx nginx -s reload'
 
-      - echo "### [6/6] Reloading nginx with the real certificate..."
-      - '{{.COMPOSE}} exec nginx nginx -s reload'
-
-      - echo "### Done. Certificate issued for {{.DOMAIN}}."
-
-  prod_deploy:
-    desc: "Full deployment"
+  create_migration:
+    desc: "task create_migration -- name"
     cmds:
-      - task: prod_init_ssl
-      - '{{.COMPOSE}} up -d --build'
+      - mkdir -p {{.MIGRATIONS_PATH}}
+      - migrate create -ext=sql -dir={{.MIGRATIONS_PATH}} -seq {{.CLI_ARGS}}
 
-  prod_up:
-    desc: "Build and start the prod stack"
+  switch_to_edge:
+    desc: Switch from standalone to edge mode (removes nginx, certbot)
     cmds:
-      - '{{.COMPOSE}} up -d --build'
+      - '{{.COMPOSE_STANDALONE}} down --remove-orphans'
+      - task: edge_deploy
 
-  prod_down:
-    desc: "Stop the prod stack"
+  switch_to_standalone:
+    desc: Switch from edge to standalone mode (adds nginx, certbot)
     cmds:
-      - '{{.COMPOSE}} down'
-
-  prod_ps:
-    desc: "Show prod containers"
-    cmds:
-      - '{{.COMPOSE}} ps'
-
-  prod_logs:
-    desc: "Follow prod logs: task prod_logs -- backend"
-    cmds:
-      - '{{.COMPOSE}} logs -f {{.CLI_ARGS}}'
+      - '{{.COMPOSE_EDGE}} down --remove-orphans'
+      - task: standalone_deploy

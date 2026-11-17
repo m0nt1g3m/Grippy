@@ -1,0 +1,11 @@
+name: grippy
+
+services:
+  backend:
+    networks: !override
+      - app
+      - proxy_net
+
+networks:
+  proxy_net:
+    external: true
