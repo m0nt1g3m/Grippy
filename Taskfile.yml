@@ -21,7 +21,7 @@ tasks:
     desc: Deploy behind EdgeProxy (nginx+certbot live in /opt/EdgeProxy)
     cmds:
       - '{{.COMPOSE_EDGE}} up -d --build --remove-orphans'
-      - echo "Now add grippy.work.gd in /opt/EdgeProxy: task add-domain"
+      - 'echo "Now add grippy.work.gd in /opt/EdgeProxy: task add-domain"'
 
   edge_down:
     desc: Stop Grippy (edge mode)
