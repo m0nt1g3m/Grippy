@@ -44,7 +44,7 @@ tasks:
     cmds:
       - '{{.COMPOSE}} run --rm migrate -path=/migrations -database "postgres://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB?sslmode=disable" down {{.CLI_ARGS}}'
 
-    prod_init_ssl:
+  prod_init_ssl:
     desc: "Obtain Let's Encrypt certificate automatically (idempotent, no manual nginx swaps)"
     status:
       - test -f {{.CERTBOT_DIR}}/conf/renewal/{{.DOMAIN}}.conf
