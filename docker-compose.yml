@@ -34,7 +34,7 @@ services:
     networks: [app]
 
   migrate:
-    image: migrate/migrate:v4.18.1
+    image: migrate/migrate:v4.18.3
     container_name: grippy_migrate
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?}
@@ -62,8 +62,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
     volumes:
       - ./logs:/app/logs
     networks: 
